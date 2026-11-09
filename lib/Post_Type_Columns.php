@@ -178,20 +178,43 @@ class Post_Type_Columns {
 		$meta_key    = $this->columns[ $orderby ]['meta_key'] ?? $orderby;
 
 		// Keep posts without the meta row in the list instead of dropping them.
-		$query->set( 'meta_query', [
+		$sort_meta_clause = [
+			'key'     => $meta_key,
+			'compare' => 'EXISTS',
+		];
+
+		if ( 'meta_value_num' === $new_orderby ) {
+			$sort_meta_clause['type'] = 'NUMERIC';
+		}
+
+		$sort_meta_query = [
 			'relation'        => 'OR',
-			'types_sort_meta' => [
-				'key'     => $meta_key,
-				'compare' => 'EXISTS',
-			],
+			'types_sort_meta' => $sort_meta_clause,
 			[
 				'key'     => $meta_key,
 				'compare' => 'NOT EXISTS',
 			],
-		] );
-		$query->set( 'orderby', 'meta_value' === $new_orderby ? 'types_sort_meta' : $new_orderby );
+		];
+		$meta_query      = $query->get( 'meta_query' );
 
-		if ( 'meta_value' !== $new_orderby ) {
+		if ( ! empty( $meta_query ) ) {
+			$query->set( 'meta_query', [
+				'relation' => 'AND',
+				$meta_query,
+				$sort_meta_query,
+			] );
+		} else {
+			$query->set( 'meta_query', $sort_meta_query );
+		}
+
+		$query->set(
+			'orderby',
+			in_array( $new_orderby, [ 'meta_value', 'meta_value_num' ], true )
+				? 'types_sort_meta'
+				: $new_orderby
+		);
+
+		if ( ! in_array( $new_orderby, [ 'meta_value', 'meta_value_num' ], true ) ) {
 			$query->set( 'meta_key', $meta_key );
 		}
 	}

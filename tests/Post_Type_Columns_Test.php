@@ -47,12 +47,25 @@ class Post_Type_Columns_Test extends TestCase {
 				'title'    => 'Edition',
 				'sortable' => true,
 			],
+			'acf_rating'  => [
+				'title'    => 'Rating',
+				'type'     => 'acf',
+				'sortable' => true,
+			],
 			'publisher'   => [
 				'title'        => 'Publisher',
 				'column_order' => 5,
 			],
 			'length'      => [
-				'title' => 'Pages',
+				'title'     => 'Pages',
+				'type'      => 'custom',
+				'sortable'  => true,
+				'meta_key'  => 'page_count',
+				'orderby'   => 'meta_value_num',
+				'transform' => fn( $value ) => $value . ' pages',
+			],
+			'length_callback' => [
+				'title' => 'Pages callback',
 				'type'  => 'custom',
 				'value' => fn( $post_id ) => get_post_meta( $post_id, 'page_count', true ) . ' pages',
 			],
@@ -63,8 +76,9 @@ class Post_Type_Columns_Test extends TestCase {
 				'book_author' => 'Frank Herbert',
 				'price'       => '12.9',
 				'publisher'   => 'Chilton',
-				'page_count'  => '412',
+				'page_count'  => '9',
 				'edition'     => '10',
+				'acf_rating'  => '3',
 			],
 			'Neuromancer' => [
 				'book_author' => 'William Gibson',
@@ -72,13 +86,15 @@ class Post_Type_Columns_Test extends TestCase {
 				'publisher'   => 'Ace',
 				'page_count'  => '271',
 				'edition'     => '2',
+				'acf_rating'  => '1',
 			],
 			'Hyperion'    => [
 				'book_author' => 'Dan Simmons',
 				'price'       => '105',
 				'publisher'   => 'Doubleday',
-				'page_count'  => '482',
+				'page_count'  => '105',
 				'edition'     => '9',
+				'acf_rating'  => '2',
 			],
 		];
 
@@ -122,7 +138,17 @@ class Post_Type_Columns_Test extends TestCase {
 		] );
 
 		$this->assertSame(
-			[ 'cb', 'publisher', 'title', 'book_author', 'price', 'edition', 'length' ],
+			[
+				'cb',
+				'publisher',
+				'title',
+				'book_author',
+				'price',
+				'edition',
+				'acf_rating',
+				'length',
+				'length_callback',
+			],
 			array_keys( $columns )
 		);
 		$this->assertSame( 'Author', $columns['book_author'] );
@@ -134,8 +160,10 @@ class Post_Type_Columns_Test extends TestCase {
 		$this->assertArrayHasKey( 'book_author', $sortable );
 		$this->assertArrayHasKey( 'price', $sortable );
 		$this->assertArrayHasKey( 'edition', $sortable );
+		$this->assertArrayHasKey( 'acf_rating', $sortable );
+		$this->assertArrayHasKey( 'length', $sortable );
 		$this->assertArrayNotHasKey( 'publisher', $sortable );
-		$this->assertArrayNotHasKey( 'length', $sortable );
+		$this->assertArrayNotHasKey( 'length_callback', $sortable );
 	}
 
 	public function test_sortable_false_removes_existing_sortable_column(): void {
@@ -168,6 +196,35 @@ class Post_Type_Columns_Test extends TestCase {
 			'orderby' => 'price',
 			'order'   => 'DESC',
 		] ) );
+	}
+
+	public function test_sort_by_acf_column(): void {
+		$this->assertSame( [ 'Neuromancer', 'Hyperion', 'Dune' ], $this->query_titles( [
+			'orderby' => 'acf_rating',
+			'order'   => 'ASC',
+		] ) );
+	}
+
+	public function test_sort_by_custom_column_meta_key(): void {
+		$this->assertSame( [ 'Dune', 'Hyperion', 'Neuromancer' ], $this->query_titles( [
+			'orderby' => 'length',
+			'order'   => 'ASC',
+		] ) );
+	}
+
+	public function test_sort_keeps_posts_without_the_meta_key(): void {
+		static::factory()->post->create( [
+			'post_type'  => 'book',
+			'post_title' => 'The Left Hand of Darkness',
+		] );
+
+		$this->assertEqualsCanonicalizing(
+			[ 'Dune', 'Neuromancer', 'Hyperion', 'The Left Hand of Darkness' ],
+			$this->query_titles( [
+				'orderby' => 'price',
+				'order'   => 'ASC',
+			] )
+		);
 	}
 
 	public function test_sort_by_meta_column_sorts_numbers_as_strings_by_default(): void {
@@ -231,6 +288,25 @@ class Post_Type_Columns_Test extends TestCase {
 		] ) );
 	}
 
+	public function test_search_is_kept_when_sorting_and_sort_meta_is_missing(): void {
+		static::factory()->post->create( [
+			'post_type'  => 'book',
+			'post_title' => 'Unpriced Neuromancer',
+			'meta_input' => [
+				'book_author' => 'William Gibson',
+			],
+		] );
+
+		$this->assertEqualsCanonicalizing(
+			[ 'Neuromancer', 'Unpriced Neuromancer' ],
+			$this->query_titles( [
+				's'       => 'Gibson',
+				'orderby' => 'price',
+				'order'   => 'ASC',
+			] )
+		);
+	}
+
 	public function test_meta_column_content_with_transform(): void {
 		$this->expectOutputString( 'CHF 12.9' );
 
@@ -238,6 +314,12 @@ class Post_Type_Columns_Test extends TestCase {
 	}
 
 	public function test_custom_column_content(): void {
+		$this->expectOutputString( '271 pages' );
+
+		do_action( 'manage_book_posts_custom_column', 'length_callback', $this->posts['Neuromancer'] );
+	}
+
+	public function test_custom_column_content_uses_meta_key_and_transform(): void {
 		$this->expectOutputString( '271 pages' );
 
 		do_action( 'manage_book_posts_custom_column', 'length', $this->posts['Neuromancer'] );
